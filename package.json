@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/index.js",
-    "postinstall": "prisma skills sync || exit 0"
+    "postinstall": "prisma skills sync || exit 0",
+    "start": "tsx src/index.js"
   },
   "keywords": [],
   "author": "",
@@ -31,5 +32,8 @@
     "prisma@7.10.0": true,
     "@prisma/engines@7.10.0": true,
     "fsevents@2.3.3": true
+  },
+  "engines": {
+    "node": "24.x"
   }
 }
