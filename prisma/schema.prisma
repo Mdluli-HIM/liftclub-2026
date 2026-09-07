@@ -25,17 +25,24 @@ enum BookingStatus {
   COMPLETED
 }
 
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
-  id                 String   @id @default(uuid())
+  id                 String              @id @default(uuid())
   name               String
-  email              String   @unique
+  email              String              @unique
   phone              String?
   passwordHash       String
-  role               Role     @default(CUSTOMER)
-  isVerified         Boolean  @default(false)
+  role               Role                @default(CUSTOMER)
+  verificationStatus VerificationStatus  @default(PENDING)
+  rejectionReason    String?
   idDocumentUrl      String?
   licenseDocumentUrl String?
-  createdAt          DateTime @default(now())
+  createdAt          DateTime            @default(now())
 
   vehicles Vehicle[]
   trips    Trip[]
@@ -53,6 +60,7 @@ model Vehicle {
   seatCapacity            Int
   photos                  String[]
   amenities               String[]
+  registrationNumber      String?
   registrationDocumentUrl String?
   createdAt               DateTime @default(now())
 
@@ -78,13 +86,17 @@ model Trip {
 }
 
 model Booking {
-  id          String        @id @default(uuid())
-  tripId      String
-  trip        Trip          @relation(fields: [tripId], references: [id])
-  customerId  String
-  customer    User          @relation(fields: [customerId], references: [id])
-  seatsBooked Int
-  totalPrice  Float
-  status      BookingStatus @default(CONFIRMED)
-  createdAt   DateTime      @default(now())
+  id              String        @id @default(uuid())
+  tripId          String
+  trip            Trip          @relation(fields: [tripId], references: [id])
+  customerId      String
+  customer        User          @relation(fields: [customerId], references: [id])
+  seatsBooked     Int
+  totalPrice      Float
+  status          BookingStatus @default(CONFIRMED)
+  pickupLocation  String?
+  dropoffLocation String?
+  passengerName   String?
+  passengerPhone  String?
+  createdAt       DateTime      @default(now())
 }

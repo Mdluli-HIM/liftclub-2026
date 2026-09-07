@@ -5,15 +5,25 @@ const requireRole = require('../middleware/requireRole');
 
 const router = express.Router();
 
-// POST /bookings - book seats on a trip (customer only)
 router.post('/', requireAuth, requireRole('CUSTOMER'), async (req, res) => {
   try {
-    const { tripId, seats } = req.body;
+    const { tripId, seats, pickupLocation, dropoffLocation, passengerName, passengerPhone } = req.body;
     const seatsRequested = Number(seats);
 
     if (!tripId || !seatsRequested || seatsRequested < 1) {
       return res.status(400).json({ error: 'tripId and a valid number of seats are required' });
     }
+    if (!pickupLocation || !pickupLocation.trim()) {
+      return res.status(400).json({ error: 'A pickup location is required' });
+    }
+    if (!dropoffLocation || !dropoffLocation.trim()) {
+      return res.status(400).json({ error: 'A drop-off location is required' });
+    }
+    if (!passengerPhone || !passengerPhone.trim()) {
+      return res.status(400).json({ error: 'A contact phone number is required so the driver can reach you' });
+    }
+
+    const customer = await prisma.user.findUnique({ where: { id: req.user.userId } });
 
     const booking = await prisma.$transaction(async (tx) => {
       const trip = await tx.trip.findUnique({ where: { id: tripId } });
@@ -24,8 +34,6 @@ router.post('/', requireAuth, requireRole('CUSTOMER'), async (req, res) => {
 
       const maxAllowedBookedBefore = trip.totalSeats - seatsRequested;
 
-      // This single atomic update is what prevents overbooking:
-      // it only succeeds if seatsBooked is still low enough to fit this request.
       const updateResult = await tx.trip.updateMany({
         where: {
           id: tripId,
@@ -49,6 +57,10 @@ router.post('/', requireAuth, requireRole('CUSTOMER'), async (req, res) => {
           seatsBooked: seatsRequested,
           totalPrice,
           status: 'CONFIRMED',
+          pickupLocation: pickupLocation.trim(),
+          dropoffLocation: dropoffLocation.trim(),
+          passengerName: (passengerName && passengerName.trim()) || customer.name,
+          passengerPhone: passengerPhone.trim(),
         },
       });
     });
@@ -66,7 +78,6 @@ router.post('/', requireAuth, requireRole('CUSTOMER'), async (req, res) => {
   }
 });
 
-// GET /bookings/mine - customer's own bookings
 router.get('/mine', requireAuth, requireRole('CUSTOMER'), async (req, res) => {
   const bookings = await prisma.booking.findMany({
     where: { customerId: req.user.userId },

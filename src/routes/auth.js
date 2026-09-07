@@ -48,7 +48,10 @@ router.post('/signup', async (req, res) => {
 
     res.status(201).json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified },
+      user: {
+        id: user.id, name: user.name, email: user.email, role: user.role,
+        verificationStatus: user.verificationStatus, rejectionReason: user.rejectionReason,
+      },
     });
   } catch (err) {
     if (err.code === 'P2002') {
@@ -85,7 +88,10 @@ router.post('/login', async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified },
+      user: {
+        id: user.id, name: user.name, email: user.email, role: user.role,
+        verificationStatus: user.verificationStatus, rejectionReason: user.rejectionReason,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -97,11 +103,41 @@ router.get('/me', requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user.userId },
     select: {
-      id: true, name: true, email: true, role: true, isVerified: true, createdAt: true,
+      id: true, name: true, email: true, phone: true, role: true,
+      verificationStatus: true, rejectionReason: true, createdAt: true,
       idDocumentUrl: true, licenseDocumentUrl: true,
     },
   });
   res.json({ user });
+});
+
+router.patch('/me', requireAuth, async (req, res) => {
+  try {
+    const { name, phone } = req.body;
+
+    if (name !== undefined && !name.trim()) {
+      return res.status(400).json({ error: 'Name cannot be empty' });
+    }
+
+    const data = {};
+    if (name !== undefined) data.name = name.trim();
+    if (phone !== undefined) data.phone = phone.trim() || null;
+
+    const user = await prisma.user.update({
+      where: { id: req.user.userId },
+      data,
+      select: {
+        id: true, name: true, email: true, phone: true, role: true,
+        verificationStatus: true, rejectionReason: true, createdAt: true,
+        idDocumentUrl: true, licenseDocumentUrl: true,
+      },
+    });
+
+    res.json({ user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong updating your profile' });
+  }
 });
 
 module.exports = router;

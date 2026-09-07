@@ -35,7 +35,13 @@ router.post('/', requireAuth, requireRole('PROVIDER'), async (req, res) => {
     }
 
     const provider = await prisma.user.findUnique({ where: { id: req.user.userId } });
-    if (!provider.isVerified) {
+
+    if (provider.verificationStatus !== 'APPROVED') {
+      if (provider.verificationStatus === 'REJECTED') {
+        return res.status(403).json({
+          error: 'Your provider account was not approved' + (provider.rejectionReason ? ': ' + provider.rejectionReason : '') + '. Please update your documents and try again.',
+        });
+      }
       return res.status(403).json({ error: 'Your provider account is pending verification. An admin needs to approve you before you can post trips.' });
     }
 
@@ -106,6 +112,87 @@ router.get('/mine', requireAuth, requireRole('PROVIDER'), async (req, res) => {
     orderBy: { departureTime: 'asc' },
   });
   res.json({ trips });
+});
+
+// GET /trips/date-prices - cheapest available price per day, for a 7-day window
+// Powers the date-comparison strip on the search results page.
+router.get('/date-prices', async (req, res) => {
+  try {
+    const { origin, destination, seats, date } = req.query;
+    const requestedSeats = seats ? Number(seats) : 1;
+
+    const centerDate = date ? new Date(date) : new Date();
+    if (isNaN(centerDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date' });
+    }
+
+    const DAYS = 7;
+    const rangeStart = new Date(centerDate);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeEnd.getDate() + DAYS);
+
+    const where = {
+      status: 'PUBLISHED',
+      departureTime: { gte: rangeStart, lt: rangeEnd },
+    };
+    if (origin) where.originCity = { contains: origin.trim(), mode: 'insensitive' };
+    if (destination) where.destinationCity = { contains: destination.trim(), mode: 'insensitive' };
+
+    const trips = await prisma.trip.findMany({
+      where,
+      select: { departureTime: true, pricePerSeat: true, totalSeats: true, seatsBooked: true },
+    });
+
+    const byDate = {};
+    for (let i = 0; i < DAYS; i++) {
+      const d = new Date(rangeStart);
+      d.setDate(d.getDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      byDate[key] = { date: key, minPrice: null, hasTrips: false };
+    }
+
+    trips.forEach((t) => {
+      const seatsLeft = t.totalSeats - t.seatsBooked;
+      if (seatsLeft < requestedSeats) return;
+      const key = t.departureTime.toISOString().slice(0, 10);
+      if (!byDate[key]) return;
+      byDate[key].hasTrips = true;
+      if (byDate[key].minPrice === null || t.pricePerSeat < byDate[key].minPrice) {
+        byDate[key].minPrice = t.pricePerSeat;
+      }
+    });
+
+    res.json({ prices: Object.values(byDate) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong loading date prices' });
+  }
+});
+
+router.get('/:id/passengers', requireAuth, requireRole('PROVIDER'), async (req, res) => {
+  try {
+    const trip = await prisma.trip.findUnique({ where: { id: req.params.id } });
+    if (!trip || trip.providerId !== req.user.userId) {
+      return res.status(403).json({ error: 'This trip does not belong to you' });
+    }
+
+    const bookings = await prisma.booking.findMany({
+      where: { tripId: req.params.id, status: 'CONFIRMED' },
+      select: {
+        id: true, seatsBooked: true, totalPrice: true, status: true,
+        pickupLocation: true, dropoffLocation: true, passengerName: true, passengerPhone: true,
+        createdAt: true,
+        customer: { select: { name: true, email: true, phone: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.json({ bookings });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong loading passengers' });
+  }
 });
 
 router.get('/:id', async (req, res) => {

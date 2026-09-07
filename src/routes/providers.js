@@ -29,10 +29,23 @@ router.post(
         return res.status(400).json({ error: 'At least one document (idDocument or licenseDocument) is required' });
       }
 
+      const currentUser = await prisma.user.findUnique({
+        where: { id: req.user.userId },
+        select: { verificationStatus: true },
+      });
+
+      if (currentUser.verificationStatus === 'REJECTED') {
+        data.verificationStatus = 'PENDING';
+        data.rejectionReason = null;
+      }
+
       const user = await prisma.user.update({
         where: { id: req.user.userId },
         data,
-        select: { id: true, name: true, email: true, isVerified: true, idDocumentUrl: true, licenseDocumentUrl: true },
+        select: {
+          id: true, name: true, email: true, verificationStatus: true,
+          idDocumentUrl: true, licenseDocumentUrl: true,
+        },
       });
 
       res.json({ user });
