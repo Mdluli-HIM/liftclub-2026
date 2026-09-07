@@ -95,7 +95,11 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Something went wrong during login' });
+    console.error('LOGIN ERROR:', err);
+    res.status(500).json({
+      error: 'Something went wrong during login',
+      details: err instanceof Error ? err.message : String(err)
+    });
   }
 });
 
