@@ -75,6 +75,9 @@ router.post('/', requireAuth, requireRole('PROVIDER'), async (req, res) => {
   }
 });
 
+// GET /trips/search - PUBLIC. Deliberately hides driver identity and vehicle
+// make/model/photo/registration. Only route, timing, price, seats, and
+// amenities are shown before a booking is confirmed.
 router.get('/search', async (req, res) => {
   try {
     const { origin, destination, date, seats } = req.query;
@@ -93,7 +96,18 @@ router.get('/search', async (req, res) => {
 
     const trips = await prisma.trip.findMany({
       where,
-      include: { provider: { select: { id: true, name: true } }, vehicle: true },
+      select: {
+        id: true,
+        originCity: true,
+        destinationCity: true,
+        departureTime: true,
+        pricePerSeat: true,
+        totalSeats: true,
+        seatsBooked: true,
+        status: true,
+        createdAt: true,
+        vehicle: { select: { amenities: true } },
+      },
       orderBy: { departureTime: 'asc' },
     });
 
@@ -114,8 +128,6 @@ router.get('/mine', requireAuth, requireRole('PROVIDER'), async (req, res) => {
   res.json({ trips });
 });
 
-// GET /trips/date-prices - cheapest available price per day, for a 7-day window
-// Powers the date-comparison strip on the search results page.
 router.get('/date-prices', async (req, res) => {
   try {
     const { origin, destination, seats, date } = req.query;
@@ -195,10 +207,23 @@ router.get('/:id/passengers', requireAuth, requireRole('PROVIDER'), async (req, 
   }
 });
 
+// GET /trips/:id - PUBLIC. Same masking as /search: no driver name, no vehicle
+// make/model/photo/registration until a booking is confirmed.
 router.get('/:id', async (req, res) => {
   const trip = await prisma.trip.findUnique({
     where: { id: req.params.id },
-    include: { provider: { select: { id: true, name: true } }, vehicle: true },
+    select: {
+      id: true,
+      originCity: true,
+      destinationCity: true,
+      departureTime: true,
+      pricePerSeat: true,
+      totalSeats: true,
+      seatsBooked: true,
+      status: true,
+      createdAt: true,
+      vehicle: { select: { amenities: true } },
+    },
   });
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
   res.json({ trip });

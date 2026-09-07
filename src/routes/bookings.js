@@ -50,6 +50,8 @@ router.post('/', requireAuth, requireRole('CUSTOMER'), async (req, res) => {
 
       const totalPrice = trip.pricePerSeat * seatsRequested;
 
+      // Full driver/vehicle identity is included here, and only here (plus /bookings/mine) -
+      // this is the moment the customer has actually paid, so the reveal is earned.
       return tx.booking.create({
         data: {
           tripId,
@@ -61,6 +63,14 @@ router.post('/', requireAuth, requireRole('CUSTOMER'), async (req, res) => {
           dropoffLocation: dropoffLocation.trim(),
           passengerName: (passengerName && passengerName.trim()) || customer.name,
           passengerPhone: passengerPhone.trim(),
+        },
+        include: {
+          trip: {
+            include: {
+              provider: { select: { name: true } },
+              vehicle: true,
+            },
+          },
         },
       });
     });
