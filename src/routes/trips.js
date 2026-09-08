@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const requireAuth = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
 const requireRole = require('../middleware/requireRole');
 const { toTitleCase, CITY_NAME_REGEX } = require('../lib/normalize');
 
@@ -75,9 +76,6 @@ router.post('/', requireAuth, requireRole('PROVIDER'), async (req, res) => {
   }
 });
 
-// GET /trips/search - PUBLIC. Deliberately hides driver identity and vehicle
-// make/model/photo/registration. Only route, timing, price, seats, and
-// amenities are shown before a booking is confirmed.
 router.get('/search', async (req, res) => {
   try {
     const { origin, destination, date, seats } = req.query;
@@ -97,15 +95,8 @@ router.get('/search', async (req, res) => {
     const trips = await prisma.trip.findMany({
       where,
       select: {
-        id: true,
-        originCity: true,
-        destinationCity: true,
-        departureTime: true,
-        pricePerSeat: true,
-        totalSeats: true,
-        seatsBooked: true,
-        status: true,
-        createdAt: true,
+        id: true, originCity: true, destinationCity: true, departureTime: true,
+        pricePerSeat: true, totalSeats: true, seatsBooked: true, status: true, createdAt: true,
         vehicle: { select: { amenities: true } },
       },
       orderBy: { departureTime: 'asc' },
@@ -207,26 +198,47 @@ router.get('/:id/passengers', requireAuth, requireRole('PROVIDER'), async (req, 
   }
 });
 
-// GET /trips/:id - PUBLIC. Same masking as /search: no driver name, no vehicle
-// make/model/photo/registration until a booking is confirmed.
-router.get('/:id', async (req, res) => {
-  const trip = await prisma.trip.findUnique({
-    where: { id: req.params.id },
-    select: {
-      id: true,
-      originCity: true,
-      destinationCity: true,
-      departureTime: true,
-      pricePerSeat: true,
-      totalSeats: true,
-      seatsBooked: true,
-      status: true,
-      createdAt: true,
-      vehicle: { select: { amenities: true } },
-    },
-  });
-  if (!trip) return res.status(404).json({ error: 'Trip not found' });
-  res.json({ trip });
+// GET /trips/:id - PUBLIC, but reveals full driver/vehicle detail if the requesting
+// user (if logged in) has an existing CONFIRMED booking on this exact trip - regardless
+// of which page load or session that booking happened in.
+router.get('/:id', optionalAuth, async (req, res) => {
+  try {
+    const trip = await prisma.trip.findUnique({
+      where: { id: req.params.id },
+      include: { provider: { select: { id: true, name: true } }, vehicle: true },
+    });
+    if (!trip) return res.status(404).json({ error: 'Trip not found' });
+
+    let revealed = false;
+    if (req.user && req.user.role === 'CUSTOMER') {
+      const existingBooking = await prisma.booking.findFirst({
+        where: { tripId: trip.id, customerId: req.user.userId, status: 'CONFIRMED' },
+        select: { id: true },
+      });
+      revealed = !!existingBooking;
+    }
+
+    if (revealed) {
+      return res.json({ trip, revealed: true });
+    }
+
+    const maskedTrip = {
+      id: trip.id,
+      originCity: trip.originCity,
+      destinationCity: trip.destinationCity,
+      departureTime: trip.departureTime,
+      pricePerSeat: trip.pricePerSeat,
+      totalSeats: trip.totalSeats,
+      seatsBooked: trip.seatsBooked,
+      status: trip.status,
+      createdAt: trip.createdAt,
+      vehicle: { amenities: trip.vehicle.amenities },
+    };
+    res.json({ trip: maskedTrip, revealed: false });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong loading this trip' });
+  }
 });
 
 module.exports = router;
